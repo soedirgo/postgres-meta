@@ -1,0 +1,16 @@
+import { readFileSync } from 'fs'
+
+export const columnsSql = readFileSync('columns.sql', 'utf-8')
+export const configSql = readFileSync('config.sql', 'utf-8')
+export const extensionsSql = readFileSync('extensions.sql', 'utf-8')
+export const functionsSql = readFileSync('functions.sql', 'utf-8')
+export const grantsSql = readFileSync('grants.sql', 'utf-8')
+export const policiesSql = readFileSync('policies.sql', 'utf-8')
+export const primaryKeysSql = readFileSync('primary_keys.sql', 'utf-8')
+export const publicationsSql = readFileSync('publications.sql', 'utf-8')
+export const relationshipsSql = readFileSync('relationships.sql', 'utf-8')
+export const rolesSql = readFileSync('roles.sql', 'utf-8')
+export const schemasSql = readFileSync('schemas.sql', 'utf-8')
+export const tablesSql = readFileSync('tables.sql', 'utf-8')
+export const typesSql = readFileSync('types.sql', 'utf-8')
+export const versionSql = readFileSync('version.sql', 'utf-8')
