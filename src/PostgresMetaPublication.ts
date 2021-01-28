@@ -1,32 +1,36 @@
 import { ident, literal } from 'pg-format'
 import { publicationsSql } from './sql'
 
-export default class PostgresPublicationApi {
+export default class PostgresMetaPublication {
   query: Function
 
   constructor(query: Function) {
     this.query = query
   }
 
-  async getAll() {
+  async list() {
     const { data } = await this.query(publicationsSql)
     return data
   }
 
-  async getById(id: number) {
-    const sql = `${publicationsSql} WHERE p.oid = ${literal(id)};`
-    const {
-      data: [publication],
-    } = await this.query(sql)
-    return publication
-  }
-
-  async getByName(name: string) {
-    const sql = `${publicationsSql} WHERE p.pubname = ${literal(name)};`
-    const {
-      data: [publication],
-    } = await this.query(sql)
-    return publication
+  async retrieve({ id }: { id: number }): Promise<any>
+  async retrieve({ name }: { name: string }): Promise<any>
+  async retrieve({ id, name }: { id?: number; name?: string }) {
+    if (id) {
+      const sql = `${publicationsSql} WHERE p.oid = ${literal(id)};`
+      const {
+        data: [publication],
+      } = await this.query(sql)
+      return publication
+    } else if (name) {
+      const sql = `${publicationsSql} WHERE p.pubname = ${literal(name)};`
+      const {
+        data: [publication],
+      } = await this.query(sql)
+      return publication
+    } else {
+      // TODO error
+    }
   }
 
   async create({
@@ -63,11 +67,11 @@ export default class PostgresPublicationApi {
 CREATE PUBLICATION ${ident(name)} ${tableClause}
   WITH (publish = '${publishOps.join(',')}');`
     await this.query(sql)
-    const publication = await this.getByName(name)
+    const publication = await this.retrieve({ name })
     return publication
   }
 
-  async alter(
+  async update(
     id: number,
     {
       name,
@@ -87,7 +91,7 @@ CREATE PUBLICATION ${ident(name)} ${tableClause}
       tables?: string[]
     }
   ) {
-    const old = await this.getById(id)
+    const old = await this.retrieve({ id })
 
     // Need to work around the limitations of the SQL. Can't add/drop tables from
     // a publication with FOR ALL TABLES. Can't use the SET TABLE clause without
@@ -144,12 +148,12 @@ CREATE PUBLICATION ${ident(name)} ${tableClause}
     // nameSql must be last
     const sql = `BEGIN; ${tableSql} ${publishSql} ${ownerSql} ${nameSql} COMMIT;`
     await this.query(sql)
-    const publication = await this.getById(old.id)
+    const publication = await this.retrieve({ id })
     return publication
   }
 
-  async drop(id: number) {
-    const publication = await this.getById(id)
+  async del(id: number) {
+    const publication = await this.retrieve({ id })
     const sql = `DROP PUBLICATION IF EXISTS ${ident(publication.name)};`
     await this.query(sql)
     return publication

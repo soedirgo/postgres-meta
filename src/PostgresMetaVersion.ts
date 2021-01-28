@@ -1,13 +1,13 @@
 import { versionSql } from './sql'
 
-export default class PostgresVersionApi {
+export default class PostgresMetaVersion {
   query: Function
 
   constructor(query: Function) {
     this.query = query
   }
 
-  async get() {
+  async retrieve() {
     const {
       data: [version],
     } = await this.query(versionSql)

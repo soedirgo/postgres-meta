@@ -1,34 +1,56 @@
 import { ident, literal } from 'pg-format'
 import { policiesSql } from './sql'
 
-export default class PostgresPolicyApi {
+export default class PostgresMetaPolicy {
   query: Function
 
   constructor(query: Function) {
     this.query = query
   }
 
-  async getAll() {
+  async list() {
     const { data } = await this.query(policiesSql)
     return data
   }
 
-  async getById(id: number) {
-    const sql = `${policiesSql} WHERE pol.oid = ${literal(id)};`
-    const {
-      data: [policy],
-    } = await this.query(sql)
-    return policy
-  }
-
-  async getByName(name: string, table: string, schema: string) {
-    const sql = `${policiesSql} WHERE pol.polname = ${literal(name)} AND n.nspname = ${literal(
-      schema
-    )} AND c.relname = ${literal(table)};`
-    const {
-      data: [policy],
-    } = await this.query(sql)
-    return policy
+  async retrieve({ id }: { id: number }): Promise<any>
+  async retrieve({
+    name,
+    table,
+    schema,
+  }: {
+    name: string
+    table: string
+    schema: string
+  }): Promise<any>
+  async retrieve({
+    id,
+    name,
+    table,
+    schema = 'public',
+  }: {
+    id?: number
+    name?: string
+    table?: string
+    schema?: string
+  }) {
+    if (id) {
+      const sql = `${policiesSql} WHERE pol.oid = ${literal(id)};`
+      const {
+        data: [policy],
+      } = await this.query(sql)
+      return policy
+    } else if (name && table) {
+      const sql = `${policiesSql} WHERE pol.polname = ${literal(name)} AND n.nspname = ${literal(
+        schema
+      )} AND c.relname = ${literal(table)};`
+      const {
+        data: [policy],
+      } = await this.query(sql)
+      return policy
+    } else {
+      // TODO error
+    }
   }
 
   async create({
@@ -59,11 +81,11 @@ CREATE POLICY ${ident(name)} ON ${ident(schema)}.${ident(table)}
   TO ${roles.join(',')}
   ${definitionClause} ${checkClause};`
     await this.query(sql)
-    const policy = await this.getByName(name, table, schema)
+    const policy = await this.retrieve({ name, table, schema })
     return policy
   }
 
-  async alter(
+  async update(
     id: number,
     {
       name,
@@ -81,8 +103,9 @@ CREATE POLICY ${ident(name)} ON ${ident(schema)}.${ident(table)}
       roles?: string[]
     }
   ) {
-    const old = await this.getById(id)
+    const old = await this.retrieve({ id })
 
+    // TODO
     let alter = `ALTER POLICY ${ident(name)} ON ${ident(schema)}.${ident(table)}`
     let definitionSql = definition === undefined ? '' : `${alter} USING (${definition});`
     let checkSql = check === undefined ? '' : `${alter} WITH CHECK (${check});`
@@ -90,12 +113,12 @@ CREATE POLICY ${ident(name)} ON ${ident(schema)}.${ident(table)}
 
     const sql = `BEGIN; ${definitionSql} ${checkSql} ${rolesSql} COMMIT;`
     await this.query(sql)
-    const policy = await this.getById(old.id)
+    const policy = await this.retrieve({ id })
     return policy
   }
 
-  async drop(id: number) {
-    const policy = await this.getById(id)
+  async del(id: number) {
+    const policy = await this.retrieve({ id })
     const sql = `DROP POLICY ${ident(policy.name)} ON ${ident(policy.schema)}.${ident(
       policy.table
     )};`

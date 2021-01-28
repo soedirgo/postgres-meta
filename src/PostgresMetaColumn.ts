@@ -1,45 +1,69 @@
 import { ident, literal } from 'pg-format'
 import { columnsSql } from './sql'
-import PostgresTableApi from './PostgresTableApi'
+import PostgresMetaTable from './PostgresMetaTable'
 
-export default class PostgresColumnApi {
+export default class PostgresMetaColumn {
   query: Function
-  tableApi: PostgresTableApi
+  metaTable: PostgresMetaTable
 
   constructor(query: Function) {
     this.query = query
-    this.tableApi = new PostgresTableApi(query)
+    this.metaTable = new PostgresMetaTable(query)
   }
 
-  async getAll() {
+  async list() {
     const { data } = await this.query(columnsSql)
     return data
   }
 
-  async getById(id: string) {
-    const regexp = /^(\d+)\.(\d+)$/
-    if (!regexp.test(id)) {
-      throw new Error('Invalid format for column ID.')
+  async retrieve({ id }: { id: string }): Promise<any>
+  async retrieve({
+    name,
+    table,
+    schema,
+  }: {
+    name: string
+    table: string
+    schema: string
+  }): Promise<any>
+  async retrieve({
+    id,
+    name,
+    table,
+    schema = 'public',
+  }: {
+    id?: string
+    name?: string
+    table?: string
+    schema?: string
+  }) {
+    if (id) {
+      const regexp = /^(\d+)\.(\d+)$/
+      if (!regexp.test(id)) {
+        // TODO: Error('Invalid format for column ID.')
+      }
+      const matches = id.match(regexp) as RegExpMatchArray
+      const [tableId, ordinalPos] = matches.slice(1).map(Number)
+      const sql = `${columnsSql} AND c.oid = ${tableId} AND a.attnum = ${ordinalPos}`
+      const {
+        data: [column],
+      } = await this.query(sql)
+      return column
+    } else if (name && table) {
+      const sql = `${columnsSql} AND a.attname = ${literal(name)} AND c.relname = ${literal(
+        table
+      )} AND nc.nspname = ${literal(schema)}`
+      const {
+        data: [column],
+      } = await this.query(sql)
+      return column
+    } else {
+      // TODO error
     }
-    const matches = id.match(regexp) as RegExpMatchArray
-    const [tableId, ordinalPos] = matches.slice(1).map(Number)
-    const sql = `${columnsSql} AND c.oid = ${tableId} AND a.attnum = ${ordinalPos}`
-    const {
-      data: [column],
-    } = await this.query(sql)
-    return column
-  }
-
-  async getByName(tableId: number, name: string) {
-    const sql = `${columnsSql} AND c.oid = ${tableId} AND a.attname = ${name}`
-    const {
-      data: [column],
-    } = await this.query(sql)
-    return column
   }
 
   async create({
-    tableId,
+    table_id,
     name,
     type,
     default_value,
@@ -51,7 +75,7 @@ export default class PostgresColumnApi {
     is_unique = false,
     comment,
   }: {
-    tableId: number
+    table_id: number
     name: string
     type: string
     default_value?: any
@@ -63,7 +87,7 @@ export default class PostgresColumnApi {
     is_unique?: boolean
     comment?: string
   }) {
-    const { name: table, schema } = await this.tableApi.getById(tableId)
+    const { name: table, schema } = await this.metaTable.retrieve({ id: table_id })
 
     let defaultValueClause: string
     if (default_value === undefined) {
@@ -93,11 +117,11 @@ BEGIN;
   ${commentSql};
 COMMIT;`
     await this.query(sql)
-    const column = await this.getByName(tableId, name)
+    const column = await this.retrieve({ name, table, schema })
     return column
   }
 
-  async alter(
+  async update(
     id: string,
     {
       name,
@@ -121,7 +145,7 @@ COMMIT;`
       comment?: string
     }
   ) {
-    const old = await this.getById(id)
+    const old = await this.retrieve({ id })
 
     const nameSql =
       name === undefined || name === old.name
@@ -194,12 +218,12 @@ BEGIN;
   ${nameSql}
 COMMIT;`
     await this.query(sql)
-    const column = await this.getById(old.id)
+    const column = await this.retrieve({ id })
     return column
   }
 
-  async drop(id: string) {
-    const column = await this.getById(id)
+  async del(id: string) {
+    const column = await this.retrieve({ id })
     const sql = `ALTER TABLE ${column.schema}.${column.table} DROP COLUMN ${column.name};`
     await this.query(sql)
     return column

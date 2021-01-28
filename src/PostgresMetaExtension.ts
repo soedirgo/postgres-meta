@@ -1,19 +1,19 @@
 import { ident, literal } from 'pg-format'
 import { extensionsSql } from './sql'
 
-export default class PostgresExtensionApi {
+export default class PostgresMetaExtension {
   query: Function
 
   constructor(query: Function) {
     this.query = query
   }
 
-  async getAll() {
+  async list() {
     const { data } = await this.query(extensionsSql)
     return data
   }
 
-  async getByName(name: string) {
+  async retrieve({ name }: { name: string }) {
     const sql = `${extensionsSql} WHERE name = ${name};`
     const {
       data: [extension],
@@ -38,11 +38,11 @@ CREATE EXTENSION ${ident(name)}
   ${version === undefined ? '' : `VERSION ${literal(version)}`}
   ${cascade ? 'CASCADE' : ''};`
     await this.query(sql)
-    const extension = await this.getByName(name)
+    const extension = await this.retrieve({ name })
     return extension
   }
 
-  async alter(
+  async update(
     name: string,
     {
       update = false,
@@ -65,12 +65,12 @@ CREATE EXTENSION ${ident(name)}
 
     const sql = `BEGIN; ${updateSql} ${schemaSql} COMMIT;`
     await this.query(sql)
-    const extension = await this.getByName(name)
+    const extension = await this.retrieve({ name })
     return extension
   }
 
-  async drop(name: string, { cascade = false } = {}) {
-    const extension = await this.getByName(name)
+  async del(name: string, { cascade = false } = {}) {
+    const extension = await this.retrieve({ name })
     const sql = `DROP EXTENSION ${ident(name)} ${cascade ? 'CASCADE' : 'RESTRICT'};`
     await this.query(sql)
     return extension

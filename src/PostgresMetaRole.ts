@@ -1,32 +1,36 @@
 import { ident, literal } from 'pg-format'
 import { rolesSql } from './sql'
 
-export default class PostgresRoleApi {
+export default class PostgresMetaRole {
   query: Function
 
   constructor(query: Function) {
     this.query = query
   }
 
-  async getAll() {
+  async list() {
     const { data } = await this.query(rolesSql)
     return data
   }
 
-  async getById(id: number) {
-    const sql = `${rolesSql} WHERE oid = ${literal(id)};`
-    const {
-      data: [role],
-    } = await this.query(sql)
-    return role
-  }
-
-  async getByName(name: string) {
-    const sql = `${rolesSql} WHERE rolname = ${literal(name)};`
-    const {
-      data: [role],
-    } = await this.query(sql)
-    return role
+  async retrieve({ id }: { id: number }): Promise<any>
+  async retrieve({ name }: { name: string }): Promise<any>
+  async retrieve({ id, name }: { id?: number; name?: string }) {
+    if (id) {
+      const sql = `${rolesSql} WHERE oid = ${literal(id)};`
+      const {
+        data: [role],
+      } = await this.query(sql)
+      return role
+    } else if (name) {
+      const sql = `${rolesSql} WHERE rolname = ${literal(name)};`
+      const {
+        data: [role],
+      } = await this.query(sql)
+      return role
+    } else {
+      // TODO error
+    }
   }
 
   async create({
@@ -91,11 +95,11 @@ WITH
   ${membersClause}
   ${adminsClause};`
     await this.query(sql)
-    const role = await this.getByName(name)
+    const role = await this.retrieve({ name })
     return role
   }
 
-  async alter(
+  async update(
     id: number,
     {
       name,
@@ -123,7 +127,7 @@ WITH
       valid_until?: string
     }
   ) {
-    const old = await this.getById(id)
+    const old = await this.retrieve({ id })
 
     const nameSql =
       name === undefined ? '' : `ALTER ROLE ${ident(old.name)} RENAME TO ${ident(name)};`
@@ -177,12 +181,12 @@ BEGIN;
   ${nameSql}
 COMMIT;`
     await this.query(sql)
-    const role = await this.getById(old.id)
+    const role = await this.retrieve({ id })
     return role
   }
 
-  async drop(id: number) {
-    const role = await this.getById(id)
+  async del(id: number) {
+    const role = await this.retrieve({ id })
     const sql = `DROP ROLE ${ident(role.name)};`
     await this.query(sql)
     return role

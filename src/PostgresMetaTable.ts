@@ -9,34 +9,38 @@ import {
   relationshipsSql,
 } from './sql'
 
-export default class PostgresTableApi {
+export default class PostgresMetaTable {
   query: Function
 
   constructor(query: Function) {
     this.query = query
   }
 
-  async getAll() {
+  async list() {
     const { data } = await this.query(enrichedTablesSql)
     return data
   }
 
-  async getById(id: number) {
-    const sql = `${enrichedTablesSql} WHERE tables.id = ${literal(id)};`
-    const {
-      data: [table],
-    } = await this.query(sql)
-    return table
-  }
-
-  async getByName(name: string, schema: string) {
-    const sql = `${enrichedTablesSql} WHERE tables.name = ${literal(
-      name
-    )} AND tables.schema = ${literal(schema)};`
-    const {
-      data: [table],
-    } = await this.query(sql)
-    return table
+  async retrieve({ id }: { id: number }): Promise<any>
+  async retrieve({ name, schema }: { name: string; schema: string }): Promise<any>
+  async retrieve({ id, name, schema = 'public' }: { id?: number; name?: string; schema?: string }) {
+    if (id) {
+      const sql = `${enrichedTablesSql} WHERE tables.id = ${literal(id)};`
+      const {
+        data: [table],
+      } = await this.query(sql)
+      return table
+    } else if (name) {
+      const sql = `${enrichedTablesSql} WHERE tables.name = ${literal(
+        name
+      )} AND tables.schema = ${literal(schema)};`
+      const {
+        data: [table],
+      } = await this.query(sql)
+      return table
+    } else {
+      // TODO error
+    }
   }
 
   async create({
@@ -55,11 +59,11 @@ export default class PostgresTableApi {
         : `COMMENT ON TABLE ${ident(schema)}.${ident(name)} IS ${literal(comment)};`
     const sql = `BEGIN; ${tableSql} ${commentSql} COMMIT;`
     await this.query(sql)
-    const table = await this.getByName(name, schema)
+    const table = await this.retrieve({ name, schema })
     return table
   }
 
-  async alter(
+  async update(
     id: number,
     {
       name,
@@ -79,7 +83,7 @@ export default class PostgresTableApi {
       comment?: string
     }
   ) {
-    const old = await this.getById(id)
+    const old = await this.retrieve({ id })
 
     let alter = `ALTER TABLE ${ident(old.schema)}.${ident(old.name)}`
     const schemaSql = schema === undefined ? '' : `${alter} SET SCHEMA ${ident(schema)};`
@@ -123,12 +127,12 @@ BEGIN;
   ${nameSql}
 COMMIT;`
     await this.query(sql)
-    const table = await this.getById(old.id)
+    const table = await this.retrieve({ id })
     return table
   }
 
-  async drop(id: number, { cascade = false } = {}) {
-    const table = await this.getById(id)
+  async del(id: number, { cascade = false } = {}) {
+    const table = await this.retrieve({ id })
     const sql = `DROP TABLE ${ident(table.schema)}.${ident(table.name)} ${
       cascade ? 'CASCADE' : 'RESTRICT'
     };`

@@ -1,2 +1,2 @@
-import PostgresApi from './PostgresApi'
-export { PostgresApi }
+import PostgresMeta from './PostgresMeta'
+export { PostgresMeta }
