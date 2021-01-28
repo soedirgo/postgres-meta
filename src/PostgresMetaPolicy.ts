@@ -89,15 +89,11 @@ CREATE POLICY ${ident(name)} ON ${ident(schema)}.${ident(table)}
     id: number,
     {
       name,
-      schema,
-      table,
       definition,
       check,
       roles,
     }: {
       name: string
-      schema: string
-      table: string
       definition?: string
       check?: string
       roles?: string[]
@@ -105,13 +101,14 @@ CREATE POLICY ${ident(name)} ON ${ident(schema)}.${ident(table)}
   ) {
     const old = await this.retrieve({ id })
 
-    // TODO
-    let alter = `ALTER POLICY ${ident(name)} ON ${ident(schema)}.${ident(table)}`
-    let definitionSql = definition === undefined ? '' : `${alter} USING (${definition});`
-    let checkSql = check === undefined ? '' : `${alter} WITH CHECK (${check});`
-    let rolesSql = roles === undefined ? '' : `${alter} TO (${roles.join(',')});`
+    const alter = `ALTER POLICY ${ident(old.name)} ON ${ident(old.schema)}.${ident(old.table)}`
+    const nameSql = name === undefined ? '' : `${alter} RENAME TO ${ident(name)};`
+    const definitionSql = definition === undefined ? '' : `${alter} USING (${definition});`
+    const checkSql = check === undefined ? '' : `${alter} WITH CHECK (${check});`
+    const rolesSql = roles === undefined ? '' : `${alter} TO (${roles.join(',')});`
 
-    const sql = `BEGIN; ${definitionSql} ${checkSql} ${rolesSql} COMMIT;`
+    // nameSql must be last
+    const sql = `BEGIN; ${definitionSql} ${checkSql} ${rolesSql} ${nameSql} COMMIT;`
     await this.query(sql)
     const policy = await this.retrieve({ id })
     return policy

@@ -116,7 +116,7 @@ export default class PostgresMetaTable {
       comment === undefined
         ? ''
         : `COMMENT ON TABLE ${ident(old.schema)}.${ident(old.name)} IS ${literal(comment)};`
-    // nameSql must be below schemaSql
+    // nameSql must be last, right below schemaSql
     const sql = `
 BEGIN;
   ${enableRls}
