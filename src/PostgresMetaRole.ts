@@ -185,7 +185,7 @@ COMMIT;`
     return role
   }
 
-  async del(id: number) {
+  async remove(id: number) {
     const role = await this.retrieve({ id })
     const sql = `DROP ROLE ${ident(role.name)};`
     await this.query(sql)

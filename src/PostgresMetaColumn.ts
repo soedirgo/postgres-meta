@@ -222,7 +222,7 @@ COMMIT;`
     return column
   }
 
-  async del(id: string) {
+  async remove(id: string) {
     const column = await this.retrieve({ id })
     const sql = `ALTER TABLE ${column.schema}.${column.table} DROP COLUMN ${column.name};`
     await this.query(sql)

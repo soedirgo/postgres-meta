@@ -52,7 +52,7 @@ export default class PostgresMetaSchema {
     return schema
   }
 
-  async del(id: number, { cascade = false } = {}) {
+  async remove(id: number, { cascade = false } = {}) {
     const schema = await this.retrieve({ id })
     const sql = `DROP SCHEMA ${ident(schema.name)} ${cascade ? 'CASCADE' : 'RESTRICT'};`
     await this.query(sql)

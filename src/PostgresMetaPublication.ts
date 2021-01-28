@@ -152,7 +152,7 @@ CREATE PUBLICATION ${ident(name)} ${tableClause}
     return publication
   }
 
-  async del(id: number) {
+  async remove(id: number) {
     const publication = await this.retrieve({ id })
     const sql = `DROP PUBLICATION IF EXISTS ${ident(publication.name)};`
     await this.query(sql)

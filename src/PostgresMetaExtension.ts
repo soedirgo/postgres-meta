@@ -69,7 +69,7 @@ CREATE EXTENSION ${ident(name)}
     return extension
   }
 
-  async del(name: string, { cascade = false } = {}) {
+  async remove(name: string, { cascade = false } = {}) {
     const extension = await this.retrieve({ name })
     const sql = `DROP EXTENSION ${ident(name)} ${cascade ? 'CASCADE' : 'RESTRICT'};`
     await this.query(sql)

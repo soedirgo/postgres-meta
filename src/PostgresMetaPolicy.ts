@@ -117,7 +117,7 @@ CREATE POLICY ${ident(name)} ON ${ident(schema)}.${ident(table)}
     return policy
   }
 
-  async del(id: number) {
+  async remove(id: number) {
     const policy = await this.retrieve({ id })
     const sql = `DROP POLICY ${ident(policy.name)} ON ${ident(policy.schema)}.${ident(
       policy.table

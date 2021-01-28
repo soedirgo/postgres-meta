@@ -131,7 +131,7 @@ COMMIT;`
     return table
   }
 
-  async del(id: number, { cascade = false } = {}) {
+  async remove(id: number, { cascade = false } = {}) {
     const table = await this.retrieve({ id })
     const sql = `DROP TABLE ${ident(table.schema)}.${ident(table.name)} ${
       cascade ? 'CASCADE' : 'RESTRICT'
