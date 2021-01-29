@@ -1,6 +1,7 @@
 import { ident, literal } from 'pg-format'
-import { columnsSql } from './sql'
 import PostgresMetaTable from './PostgresMetaTable'
+import { DEFAULT_SYSTEM_SCHEMAS } from './constants'
+import { columnsSql } from './sql'
 
 export default class PostgresMetaColumn {
   query: Function
@@ -11,9 +12,11 @@ export default class PostgresMetaColumn {
     this.metaTable = new PostgresMetaTable(query)
   }
 
-  async list() {
-    const { data } = await this.query(columnsSql)
-    return data
+  async list({ includeSystemSchemas = false } = {}) {
+    const sql = includeSystemSchemas
+      ? columnsSql
+      : `${columnsSql} AND NOT (nc.nspname IN (${DEFAULT_SYSTEM_SCHEMAS.map(literal).join(',')}));`
+    return await this.query(sql)
   }
 
   async retrieve({ id }: { id: string }): Promise<any>

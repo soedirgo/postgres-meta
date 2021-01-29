@@ -1,4 +1,4 @@
-import { init } from './db'
+import { ClientConfig } from 'pg'
 import PostgresMetaColumn from './PostgresMetaColumn'
 import PostgresMetaConfig from './PostgresMetaConfig'
 import PostgresMetaExtension from './PostgresMetaExtension'
@@ -10,6 +10,7 @@ import PostgresMetaSchema from './PostgresMetaSchema'
 import PostgresMetaTable from './PostgresMetaTable'
 import PostgresMetaType from './PostgresMetaType'
 import PostgresMetaVersion from './PostgresMetaVersion'
+import { init } from './db'
 
 export default class PostgresMeta {
   query: Function
@@ -25,8 +26,8 @@ export default class PostgresMeta {
   type: PostgresMetaType
   version: PostgresMetaVersion
 
-  constructor(connectionString: string) {
-    this.query = init(connectionString)
+  constructor(config: ClientConfig) {
+    this.query = init(config)
     this.column = new PostgresMetaColumn(this.query)
     this.config = new PostgresMetaConfig(this.query)
     this.extension = new PostgresMetaExtension(this.query)

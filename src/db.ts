@@ -1,10 +1,14 @@
-import { types, Client, Pool } from 'pg'
+import { types, Client, ClientConfig, Pool } from 'pg'
 types.setTypeParser(20, parseInt)
 
-export const init = (connectionString: string, { pooled = true } = {}) => {
-  const client = pooled ? new Pool({ connectionString }) : new Client({ connectionString })
+export const init = (config: ClientConfig, { pooled = true } = {}) => {
+  const client = pooled ? new Pool(config) : new Client(config)
   return async (sql: string) => {
-    const { rows } = await client.query(sql)
-    return { data: rows, error: null }
+    try {
+      const { rows } = await client.query(sql)
+      return { data: rows, error: null }
+    } catch (error) {
+      return { data: null, error }
+    }
   }
 }

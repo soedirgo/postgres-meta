@@ -1,5 +1,7 @@
 import { ident, literal } from 'pg-format'
-import { rolesSql } from './sql'
+import { DEFAULT_ROLES, DEFAULT_SYSTEM_SCHEMAS } from './constants'
+import { coalesceRowsToArray } from './helpers'
+import { grantsSql, rolesSql } from './sql'
 
 export default class PostgresMetaRole {
   query: Function
@@ -8,8 +10,24 @@ export default class PostgresMetaRole {
     this.query = query
   }
 
-  async list() {
-    const { data } = await this.query(rolesSql)
+  async list({ includeDefaultRoles = false, includeSystemSchemas = false } = {}) {
+    let sql = `
+WITH roles AS (${
+      includeDefaultRoles
+        ? rolesSql
+        : `${rolesSql} WHERE NOT (rolname IN ${DEFAULT_ROLES.map(literal).join(',')})`
+    }),
+  grants AS (${
+    includeSystemSchemas
+      ? grantsSql
+      : `${grantsSql} AND NOT (nc.nspname IN ${DEFAULT_SYSTEM_SCHEMAS.map(literal).join(',')})`
+  })
+SELECT
+  *,
+  ${coalesceRowsToArray('grants', 'SELECT * FROM grants WHERE grants.grantee = roles.name')}
+FROM
+  roles;`
+    const { data } = await this.query(sql)
     return data
   }
 

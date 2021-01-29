@@ -1,4 +1,5 @@
 import { ident, literal } from 'pg-format'
+import { DEFAULT_SYSTEM_SCHEMAS } from './constants'
 import { schemasSql } from './sql'
 
 export default class PostgresMetaSchema {
@@ -8,8 +9,11 @@ export default class PostgresMetaSchema {
     this.query = query
   }
 
-  async list() {
-    const { data } = await this.query(schemasSql)
+  async list({ includeSystemSchemas = false } = {}) {
+    const sql = includeSystemSchemas
+      ? schemasSql
+      : `${schemasSql} AND NOT (n.nspname IN (${DEFAULT_SYSTEM_SCHEMAS.map(literal).join(',')}));`
+    const { data } = await this.query(sql)
     return data
   }
 

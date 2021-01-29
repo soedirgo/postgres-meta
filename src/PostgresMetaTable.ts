@@ -1,12 +1,13 @@
 import { ident, literal } from 'pg-format'
+import { DEFAULT_SYSTEM_SCHEMAS } from './constants'
 import { coalesceRowsToArray } from './helpers'
 import {
-  tablesSql,
   columnsSql,
   grantsSql,
   policiesSql,
   primaryKeysSql,
   relationshipsSql,
+  tablesSql,
 } from './sql'
 
 export default class PostgresMetaTable {
@@ -16,8 +17,13 @@ export default class PostgresMetaTable {
     this.query = query
   }
 
-  async list() {
-    const { data } = await this.query(enrichedTablesSql)
+  async list({ includeSystemSchemas = false } = {}) {
+    const sql = includeSystemSchemas
+      ? enrichedTablesSql
+      : `${enrichedTablesSql} WHERE NOT (schema IN (${DEFAULT_SYSTEM_SCHEMAS.map(literal).join(
+          ','
+        )}));`
+    const { data } = await this.query(sql)
     return data
   }
 

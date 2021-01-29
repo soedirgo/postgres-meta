@@ -1,4 +1,5 @@
 import { ident, literal } from 'pg-format'
+import { DEFAULT_SYSTEM_SCHEMAS } from './constants'
 import { policiesSql } from './sql'
 
 export default class PostgresMetaPolicy {
@@ -8,8 +9,13 @@ export default class PostgresMetaPolicy {
     this.query = query
   }
 
-  async list() {
-    const { data } = await this.query(policiesSql)
+  async list({ includeSystemSchemas = false } = {}) {
+    const sql = includeSystemSchemas
+      ? policiesSql
+      : `${policiesSql} WHERE NOT (n.nspname IN (${DEFAULT_SYSTEM_SCHEMAS.map(literal).join(
+          ','
+        )}));`
+    const { data } = await this.query(sql)
     return data
   }
 
