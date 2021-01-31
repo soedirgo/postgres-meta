@@ -2,6 +2,7 @@ import { ident, literal } from 'pg-format'
 import { DEFAULT_ROLES, DEFAULT_SYSTEM_SCHEMAS } from './constants'
 import { coalesceRowsToArray } from './helpers'
 import { grantsSql, rolesSql } from './sql'
+import { PostgresMetaResult, PostgresRole } from './types'
 
 export default class PostgresMetaRole {
   query: Function
@@ -10,44 +11,59 @@ export default class PostgresMetaRole {
     this.query = query
   }
 
-  async list({ includeDefaultRoles = false, includeSystemSchemas = false } = {}) {
-    let sql = `
+  async list({ includeDefaultRoles = false, includeSystemSchemas = false } = {}): Promise<
+    PostgresMetaResult<PostgresRole[]>
+  > {
+    const sql = `
 WITH roles AS (${
       includeDefaultRoles
         ? rolesSql
-        : `${rolesSql} WHERE NOT (rolname IN ${DEFAULT_ROLES.map(literal).join(',')})`
+        : `${rolesSql} WHERE NOT (rolname IN (${DEFAULT_ROLES.map(literal).join(',')}))`
     }),
   grants AS (${
     includeSystemSchemas
       ? grantsSql
-      : `${grantsSql} AND NOT (nc.nspname IN ${DEFAULT_SYSTEM_SCHEMAS.map(literal).join(',')})`
+      : `${grantsSql} AND NOT (nc.nspname IN (${DEFAULT_SYSTEM_SCHEMAS.map(literal).join(',')}))`
   })
 SELECT
   *,
   ${coalesceRowsToArray('grants', 'SELECT * FROM grants WHERE grants.grantee = roles.name')}
 FROM
   roles;`
-    const { data } = await this.query(sql)
-    return data
+    return await this.query(sql)
   }
 
-  async retrieve({ id }: { id: number }): Promise<any>
-  async retrieve({ name }: { name: string }): Promise<any>
-  async retrieve({ id, name }: { id?: number; name?: string }) {
+  async retrieve({ id }: { id: number }): Promise<PostgresMetaResult<PostgresRole>>
+  async retrieve({ name }: { name: string }): Promise<PostgresMetaResult<PostgresRole>>
+  async retrieve({
+    id,
+    name,
+  }: {
+    id?: number
+    name?: string
+  }): Promise<PostgresMetaResult<PostgresRole>> {
     if (id) {
       const sql = `${rolesSql} WHERE oid = ${literal(id)};`
-      const {
-        data: [role],
-      } = await this.query(sql)
-      return role
+      const { data, error } = await this.query(sql)
+      if (error) {
+        return { data, error }
+      } else if (data.length === 0) {
+        return { data: null, error: { message: `Cannot find a role with ID ${id}` } }
+      } else {
+        return { data: data[0], error }
+      }
     } else if (name) {
       const sql = `${rolesSql} WHERE rolname = ${literal(name)};`
-      const {
-        data: [role],
-      } = await this.query(sql)
-      return role
+      const { data, error } = await this.query(sql)
+      if (error) {
+        return { data, error }
+      } else if (data.length === 0) {
+        return { data: null, error: { message: `Cannot find a role named ${name}` } }
+      } else {
+        return { data: data[0], error }
+      }
     } else {
-      // TODO error
+      return { data: null, error: { message: 'Invalid parameters on role retrieve' } }
     }
   }
 
@@ -81,7 +97,7 @@ FROM
     member_of?: string[]
     members?: string[]
     admins?: string[]
-  }) {
+  }): Promise<PostgresMetaResult<PostgresRole>> {
     const isSuperuserClause = is_superuser ? 'SUPERUSER' : 'NOSUPERUSER'
     const canCreateDbClause = can_create_db ? 'CREATEDB' : 'NOCREATEDB'
     const canCreateRoleClause = can_create_role ? 'CREATEROLE' : 'NOCREATEROLE'
@@ -112,9 +128,11 @@ WITH
   ${memberOfClause}
   ${membersClause}
   ${adminsClause};`
-    await this.query(sql)
-    const role = await this.retrieve({ name })
-    return role
+    const { error } = await this.query(sql)
+    if (error) {
+      return { data: null, error }
+    }
+    return await this.retrieve({ name })
   }
 
   async update(
@@ -144,11 +162,14 @@ WITH
       password?: string
       valid_until?: string
     }
-  ) {
-    const old = await this.retrieve({ id })
+  ): Promise<PostgresMetaResult<PostgresRole>> {
+    const { data: old, error } = await this.retrieve({ id })
+    if (error) {
+      return { data: null, error }
+    }
 
     const nameSql =
-      name === undefined ? '' : `ALTER ROLE ${ident(old.name)} RENAME TO ${ident(name)};`
+      name === undefined ? '' : `ALTER ROLE ${ident(old!.name)} RENAME TO ${ident(name)};`
     let isSuperuserClause = ''
     if (is_superuser !== undefined) {
       isSuperuserClause = is_superuser ? 'SUPERUSER' : 'NOSUPERUSER'
@@ -179,13 +200,13 @@ WITH
     }
     const connectionLimitClause =
       connection_limit === undefined ? '' : `CONNECTION LIMIT ${connection_limit}`
-    let passwordClause = password === undefined ? '' : `PASSWORD ${literal(password)}`
-    let validUntilClause = valid_until === undefined ? '' : `VALID UNTIL ${literal(valid_until)}`
+    const passwordClause = password === undefined ? '' : `PASSWORD ${literal(password)}`
+    const validUntilClause = valid_until === undefined ? '' : `VALID UNTIL ${literal(valid_until)}`
 
     // nameSql must be last
     const sql = `
 BEGIN;
-  ALTER ROLE ${ident(old.name)}
+  ALTER ROLE ${ident(old!.name)}
     ${isSuperuserClause}
     ${canCreateDbClause}
     ${canCreateRoleClause}
@@ -198,15 +219,27 @@ BEGIN;
     ${validUntilClause};
   ${nameSql}
 COMMIT;`
-    await this.query(sql)
-    const role = await this.retrieve({ id })
-    return role
+    {
+      const { error } = await this.query(sql)
+      if (error) {
+        return { data: null, error }
+      }
+    }
+    return await this.retrieve({ id })
   }
 
-  async remove(id: number) {
-    const role = await this.retrieve({ id })
-    const sql = `DROP ROLE ${ident(role.name)};`
-    await this.query(sql)
-    return role
+  async remove(id: number): Promise<PostgresMetaResult<PostgresRole>> {
+    const { data: role, error } = await this.retrieve({ id })
+    if (error) {
+      return { data: null, error }
+    }
+    const sql = `DROP ROLE ${ident(role!.name)};`
+    {
+      const { error } = await this.query(sql)
+      if (error) {
+        return { data: null, error }
+      }
+    }
+    return { data: role!, error: null }
   }
 }

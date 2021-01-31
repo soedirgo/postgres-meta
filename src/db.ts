@@ -7,8 +7,8 @@ export const init = (config: ClientConfig, { pooled = true } = {}) => {
     try {
       const { rows } = await client.query(sql)
       return { data: rows, error: null }
-    } catch (error) {
-      return { data: null, error }
+    } catch (e) {
+      return { data: null, error: { message: e.message } }
     }
   }
 }

@@ -1,4 +1,5 @@
 import { configSql } from './sql'
+import { PostgresMetaResult, PostgresConfig } from './types'
 
 export default class PostgresMetaConfig {
   query: Function
@@ -7,8 +8,7 @@ export default class PostgresMetaConfig {
     this.query = query
   }
 
-  async list() {
-    const { data } = await this.query(configSql)
-    return data
+  async list(): Promise<PostgresMetaResult<PostgresConfig[]>> {
+    return await this.query(configSql)
   }
 }

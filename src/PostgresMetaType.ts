@@ -1,6 +1,7 @@
 import { literal } from 'pg-format'
 import { DEFAULT_SYSTEM_SCHEMAS } from './constants'
 import { typesSql } from './sql'
+import { PostgresMetaResult, PostgresType } from './types'
 
 export default class PostgresMetaType {
   query: Function
@@ -9,11 +10,10 @@ export default class PostgresMetaType {
     this.query = query
   }
 
-  async list({ includeSystemSchemas = false } = {}) {
+  async list({ includeSystemSchemas = false } = {}): Promise<PostgresMetaResult<PostgresType[]>> {
     const sql = includeSystemSchemas
       ? typesSql
       : `${typesSql} AND NOT (n.nspname IN (${DEFAULT_SYSTEM_SCHEMAS.map(literal).join(',')}));`
-    const { data } = await this.query(sql)
-    return data
+    return await this.query(sql)
   }
 }

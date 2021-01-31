@@ -9,6 +9,7 @@ import {
   relationshipsSql,
   tablesSql,
 } from './sql'
+import { PostgresMetaResult, PostgresTable } from './types'
 
 export default class PostgresMetaTable {
   query: Function
@@ -17,35 +18,59 @@ export default class PostgresMetaTable {
     this.query = query
   }
 
-  async list({ includeSystemSchemas = false } = {}) {
+  async list({ includeSystemSchemas = false } = {}): Promise<PostgresMetaResult<PostgresTable[]>> {
     const sql = includeSystemSchemas
       ? enrichedTablesSql
       : `${enrichedTablesSql} WHERE NOT (schema IN (${DEFAULT_SYSTEM_SCHEMAS.map(literal).join(
           ','
         )}));`
-    const { data } = await this.query(sql)
-    return data
+    return await this.query(sql)
   }
 
-  async retrieve({ id }: { id: number }): Promise<any>
-  async retrieve({ name, schema }: { name: string; schema: string }): Promise<any>
-  async retrieve({ id, name, schema = 'public' }: { id?: number; name?: string; schema?: string }) {
+  async retrieve({ id }: { id: number }): Promise<PostgresMetaResult<PostgresTable>>
+  async retrieve({
+    name,
+    schema,
+  }: {
+    name: string
+    schema: string
+  }): Promise<PostgresMetaResult<PostgresTable>>
+  async retrieve({
+    id,
+    name,
+    schema = 'public',
+  }: {
+    id?: number
+    name?: string
+    schema?: string
+  }): Promise<PostgresMetaResult<PostgresTable>> {
     if (id) {
       const sql = `${enrichedTablesSql} WHERE tables.id = ${literal(id)};`
-      const {
-        data: [table],
-      } = await this.query(sql)
-      return table
+      const { data, error } = await this.query(sql)
+      if (error) {
+        return { data, error }
+      } else if (data.length === 0) {
+        return { data: null, error: { message: `Cannot find a table with ID ${id}` } }
+      } else {
+        return { data: data[0], error }
+      }
     } else if (name) {
       const sql = `${enrichedTablesSql} WHERE tables.name = ${literal(
         name
       )} AND tables.schema = ${literal(schema)};`
-      const {
-        data: [table],
-      } = await this.query(sql)
-      return table
+      const { data, error } = await this.query(sql)
+      if (error) {
+        return { data, error }
+      } else if (data.length === 0) {
+        return {
+          data: null,
+          error: { message: `Cannot find a table named ${name} in schema ${schema}` },
+        }
+      } else {
+        return { data: data[0], error }
+      }
     } else {
-      // TODO error
+      return { data: null, error: { message: 'Invalid parameters on table retrieve' } }
     }
   }
 
@@ -57,16 +82,18 @@ export default class PostgresMetaTable {
     name: string
     schema?: string
     comment?: string
-  }) {
-    const tableSql = `CREATE TABLE IF NOT EXISTS ${ident(schema)}.${ident(name)} ();`
+  }): Promise<PostgresMetaResult<PostgresTable>> {
+    const tableSql = `CREATE TABLE ${ident(schema)}.${ident(name)} ();`
     const commentSql =
       comment === undefined
         ? ''
         : `COMMENT ON TABLE ${ident(schema)}.${ident(name)} IS ${literal(comment)};`
     const sql = `BEGIN; ${tableSql} ${commentSql} COMMIT;`
-    await this.query(sql)
-    const table = await this.retrieve({ name, schema })
-    return table
+    const { error } = await this.query(sql)
+    if (error) {
+      return { data: null, error }
+    }
+    return await this.retrieve({ name, schema })
   }
 
   async update(
@@ -88,26 +115,29 @@ export default class PostgresMetaTable {
       replica_identity_index?: string
       comment?: string
     }
-  ) {
-    const old = await this.retrieve({ id })
+  ): Promise<PostgresMetaResult<PostgresTable>> {
+    const { data: old, error } = await this.retrieve({ id })
+    if (error) {
+      return { data: null, error }
+    }
 
-    let alter = `ALTER TABLE ${ident(old.schema)}.${ident(old.name)}`
+    const alter = `ALTER TABLE ${ident(old!.schema)}.${ident(old!.name)}`
     const schemaSql = schema === undefined ? '' : `${alter} SET SCHEMA ${ident(schema)};`
     let nameSql = ''
     if (name !== undefined) {
-      const currentSchema = schema === undefined ? old.schema : schema
-      nameSql = `ALTER TABLE ${ident(currentSchema)}.${ident(old.name)} RENAME TO ${ident(name)}`
+      const currentSchema = schema === undefined ? old!.schema : schema
+      nameSql = `ALTER TABLE ${ident(currentSchema)}.${ident(old!.name)} RENAME TO ${ident(name)}`
     }
     let enableRls = ''
     if (rls_enabled !== undefined) {
-      let enable = `${alter} ENABLE ROW LEVEL SECURITY;`
-      let disable = `${alter} DISABLE ROW LEVEL SECURITY;`
+      const enable = `${alter} ENABLE ROW LEVEL SECURITY;`
+      const disable = `${alter} DISABLE ROW LEVEL SECURITY;`
       enableRls = rls_enabled ? enable : disable
     }
     let forceRls = ''
     if (rls_forced !== undefined) {
-      let enable = `${alter} FORCE ROW LEVEL SECURITY;`
-      let disable = `${alter} NO FORCE ROW LEVEL SECURITY;`
+      const enable = `${alter} FORCE ROW LEVEL SECURITY;`
+      const disable = `${alter} NO FORCE ROW LEVEL SECURITY;`
       forceRls = rls_forced ? enable : disable
     }
     let replicaSql: string
@@ -121,7 +151,7 @@ export default class PostgresMetaTable {
     const commentSql =
       comment === undefined
         ? ''
-        : `COMMENT ON TABLE ${ident(old.schema)}.${ident(old.name)} IS ${literal(comment)};`
+        : `COMMENT ON TABLE ${ident(old!.schema)}.${ident(old!.name)} IS ${literal(comment)};`
     // nameSql must be last, right below schemaSql
     const sql = `
 BEGIN;
@@ -132,18 +162,30 @@ BEGIN;
   ${schemaSql}
   ${nameSql}
 COMMIT;`
-    await this.query(sql)
-    const table = await this.retrieve({ id })
-    return table
+    {
+      const { error } = await this.query(sql)
+      if (error) {
+        return { data: null, error }
+      }
+    }
+    return await this.retrieve({ id })
   }
 
-  async remove(id: number, { cascade = false } = {}) {
-    const table = await this.retrieve({ id })
-    const sql = `DROP TABLE ${ident(table.schema)}.${ident(table.name)} ${
+  async remove(id: number, { cascade = false } = {}): Promise<PostgresMetaResult<PostgresTable>> {
+    const { data: table, error } = await this.retrieve({ id })
+    if (error) {
+      return { data: null, error }
+    }
+    const sql = `DROP TABLE ${ident(table!.schema)}.${ident(table!.name)} ${
       cascade ? 'CASCADE' : 'RESTRICT'
     };`
-    await this.query(sql)
-    return table
+    {
+      const { error } = await this.query(sql)
+      if (error) {
+        return { data: null, error }
+      }
+    }
+    return { data: table!, error: null }
   }
 }
 

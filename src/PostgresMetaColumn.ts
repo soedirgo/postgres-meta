@@ -2,6 +2,7 @@ import { ident, literal } from 'pg-format'
 import PostgresMetaTable from './PostgresMetaTable'
 import { DEFAULT_SYSTEM_SCHEMAS } from './constants'
 import { columnsSql } from './sql'
+import { PostgresMetaResult, PostgresColumn } from './types'
 
 export default class PostgresMetaColumn {
   query: Function
@@ -12,14 +13,14 @@ export default class PostgresMetaColumn {
     this.metaTable = new PostgresMetaTable(query)
   }
 
-  async list({ includeSystemSchemas = false } = {}) {
+  async list({ includeSystemSchemas = false } = {}): Promise<PostgresMetaResult<PostgresColumn[]>> {
     const sql = includeSystemSchemas
       ? columnsSql
       : `${columnsSql} AND NOT (nc.nspname IN (${DEFAULT_SYSTEM_SCHEMAS.map(literal).join(',')}));`
     return await this.query(sql)
   }
 
-  async retrieve({ id }: { id: string }): Promise<any>
+  async retrieve({ id }: { id: string }): Promise<PostgresMetaResult<PostgresColumn>>
   async retrieve({
     name,
     table,
@@ -28,7 +29,7 @@ export default class PostgresMetaColumn {
     name: string
     table: string
     schema: string
-  }): Promise<any>
+  }): Promise<PostgresMetaResult<PostgresColumn>>
   async retrieve({
     id,
     name,
@@ -39,29 +40,40 @@ export default class PostgresMetaColumn {
     name?: string
     table?: string
     schema?: string
-  }) {
+  }): Promise<PostgresMetaResult<PostgresColumn>> {
     if (id) {
       const regexp = /^(\d+)\.(\d+)$/
       if (!regexp.test(id)) {
-        // TODO: Error('Invalid format for column ID.')
+        return { data: null, error: { message: 'Invalid format for column ID' } }
       }
       const matches = id.match(regexp) as RegExpMatchArray
       const [tableId, ordinalPos] = matches.slice(1).map(Number)
-      const sql = `${columnsSql} AND c.oid = ${tableId} AND a.attnum = ${ordinalPos}`
-      const {
-        data: [column],
-      } = await this.query(sql)
-      return column
+      const sql = `${columnsSql} AND c.oid = ${tableId} AND a.attnum = ${ordinalPos};`
+      const { data, error } = await this.query(sql)
+      if (error) {
+        return { data, error }
+      } else if (data.length === 0) {
+        return { data: null, error: { message: `Cannot find a column with ID ${id}` } }
+      } else {
+        return { data: data[0], error }
+      }
     } else if (name && table) {
       const sql = `${columnsSql} AND a.attname = ${literal(name)} AND c.relname = ${literal(
         table
-      )} AND nc.nspname = ${literal(schema)}`
-      const {
-        data: [column],
-      } = await this.query(sql)
-      return column
+      )} AND nc.nspname = ${literal(schema)};`
+      const { data, error } = await this.query(sql)
+      if (error) {
+        return { data, error }
+      } else if (data.length === 0) {
+        return {
+          data: null,
+          error: { message: `Cannot find a column named ${name} in table ${schema}.${table}` },
+        }
+      } else {
+        return { data: data[0], error }
+      }
     } else {
-      // TODO error
+      return { data: null, error: { message: 'Invalid parameters on column retrieve' } }
     }
   }
 
@@ -89,8 +101,12 @@ export default class PostgresMetaColumn {
     is_primary_key?: boolean
     is_unique?: boolean
     comment?: string
-  }) {
-    const { name: table, schema } = await this.metaTable.retrieve({ id: table_id })
+  }): Promise<PostgresMetaResult<PostgresColumn>> {
+    const { data, error } = await this.metaTable.retrieve({ id: table_id })
+    if (error) {
+      return { data: null, error }
+    }
+    const { name: table, schema } = data!
 
     let defaultValueClause: string
     if (default_value === undefined) {
@@ -119,9 +135,13 @@ BEGIN;
     ${isUniqueClause};
   ${commentSql};
 COMMIT;`
-    await this.query(sql)
-    const column = await this.retrieve({ name, table, schema })
-    return column
+    {
+      const { error } = await this.query(sql)
+      if (error) {
+        return { data: null, error }
+      }
+    }
+    return await this.retrieve({ name, table, schema })
   }
 
   async update(
@@ -147,28 +167,37 @@ COMMIT;`
       is_nullable?: boolean
       comment?: string
     }
-  ) {
-    const old = await this.retrieve({ id })
+  ): Promise<PostgresMetaResult<PostgresColumn>> {
+    const { data: old, error } = await this.retrieve({ id })
+    if (error) {
+      return { data: null, error }
+    }
 
     const nameSql =
-      name === undefined || name === old.name
+      name === undefined || name === old!.name
         ? ''
-        : `ALTER TABLE ${old.schema}.${old.table} RENAME COLUMN ${old.name} TO ${name};`
+        : `ALTER TABLE ${old!.schema}.${old!.table} RENAME COLUMN ${old!.name} TO ${name};`
     // We use USING to allow implicit conversion of incompatible types (e.g. int4 -> text).
     const typeSql =
       type === undefined
         ? ''
-        : `ALTER TABLE ${old.schema}.${old.table} ALTER COLUMN ${old.name} SET DATA TYPE ${type} USING ${old.name}::${type};`
+        : `ALTER TABLE ${old!.schema}.${old!.table} ALTER COLUMN ${
+            old!.name
+          } SET DATA TYPE ${type} USING ${old!.name}::${type};`
 
     let defaultValueSql: string
     if (drop_default) {
-      defaultValueSql = `ALTER TABLE ${old.schema}.${old.table} ALTER COLUMN ${old.name} DROP DEFAULT;`
+      defaultValueSql = `ALTER TABLE ${old!.schema}.${old!.table} ALTER COLUMN ${
+        old!.name
+      } DROP DEFAULT;`
     } else if (default_value === undefined) {
       defaultValueSql = ''
     } else {
       const defaultValue =
         default_value_format === 'expression' ? default_value : literal(default_value)
-      defaultValueSql = `ALTER TABLE ${old.schema}.${old.table} ALTER COLUMN ${old.name} SET DEFAULT ${defaultValue};`
+      defaultValueSql = `ALTER TABLE ${old!.schema}.${old!.table} ALTER COLUMN ${
+        old!.name
+      } SET DEFAULT ${defaultValue};`
     }
     // What identitySql does vary depending on the old and new values of
     // is_identity and identity_generation.
@@ -178,12 +207,12 @@ COMMIT;`
     // | true                   | maybe set identity | maybe set identity | drop if exists |
     // |------------------------+--------------------+--------------------+----------------|
     // | false                  | -                  | add identity       | drop if exists |
-    let identitySql = `ALTER TABLE ${ident(old.schema)}.${ident(old.table)} ALTER COLUMN ${ident(
-      old.name
+    let identitySql = `ALTER TABLE ${ident(old!.schema)}.${ident(old!.table)} ALTER COLUMN ${ident(
+      old!.name
     )};`
     if (is_identity === false) {
       identitySql += 'DROP IDENTITY IF EXISTS;'
-    } else if (old.is_identity === true) {
+    } else if (old!.is_identity === true) {
       if (identity_generation === undefined) {
         identitySql = ''
       } else {
@@ -199,13 +228,13 @@ COMMIT;`
       isNullableSql = ''
     } else {
       isNullableSql = is_nullable
-        ? `ALTER TABLE ${old.schema}.${old.table} ALTER COLUMN ${old.name} DROP NOT NULL;`
-        : `ALTER TABLE ${old.schema}.${old.table} ALTER COLUMN ${old.name} SET NOT NULL;`
+        ? `ALTER TABLE ${old!.schema}.${old!.table} ALTER COLUMN ${old!.name} DROP NOT NULL;`
+        : `ALTER TABLE ${old!.schema}.${old!.table} ALTER COLUMN ${old!.name} SET NOT NULL;`
     }
     const commentSql =
       comment === undefined
         ? ''
-        : `COMMENT ON COLUMN ${old.schema}.${old.table}.${old.name} IS ${comment};`
+        : `COMMENT ON COLUMN ${old!.schema}.${old!.table}.${old!.name} IS ${comment};`
 
     // nameSql must be last.
     // defaultValueSql must be after typeSql.
@@ -220,15 +249,27 @@ BEGIN;
   ${commentSql}
   ${nameSql}
 COMMIT;`
-    await this.query(sql)
-    const column = await this.retrieve({ id })
-    return column
+    {
+      const { error } = await this.query(sql)
+      if (error) {
+        return { data: null, error }
+      }
+    }
+    return await this.retrieve({ id })
   }
 
-  async remove(id: string) {
-    const column = await this.retrieve({ id })
-    const sql = `ALTER TABLE ${column.schema}.${column.table} DROP COLUMN ${column.name};`
-    await this.query(sql)
-    return column
+  async remove(id: string): Promise<PostgresMetaResult<PostgresColumn>> {
+    const { data: column, error } = await this.retrieve({ id })
+    if (error) {
+      return { data: null, error }
+    }
+    const sql = `ALTER TABLE ${column!.schema}.${column!.table} DROP COLUMN ${column!.name};`
+    {
+      const { error } = await this.query(sql)
+      if (error) {
+        return { data: null, error }
+      }
+    }
+    return { data: column!, error: null }
   }
 }

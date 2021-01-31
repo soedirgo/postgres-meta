@@ -1,5 +1,6 @@
 import { ident, literal } from 'pg-format'
 import { publicationsSql } from './sql'
+import { PostgresMetaResult, PostgresPublication } from './types'
 
 export default class PostgresMetaPublication {
   query: Function
@@ -8,28 +9,41 @@ export default class PostgresMetaPublication {
     this.query = query
   }
 
-  async list() {
-    const { data } = await this.query(publicationsSql)
-    return data
+  async list(): Promise<PostgresMetaResult<PostgresPublication[]>> {
+    return await this.query(publicationsSql)
   }
 
-  async retrieve({ id }: { id: number }): Promise<any>
-  async retrieve({ name }: { name: string }): Promise<any>
-  async retrieve({ id, name }: { id?: number; name?: string }) {
+  async retrieve({ id }: { id: number }): Promise<PostgresMetaResult<PostgresPublication>>
+  async retrieve({ name }: { name: string }): Promise<PostgresMetaResult<PostgresPublication>>
+  async retrieve({
+    id,
+    name,
+  }: {
+    id?: number
+    name?: string
+  }): Promise<PostgresMetaResult<PostgresPublication>> {
     if (id) {
       const sql = `${publicationsSql} WHERE p.oid = ${literal(id)};`
-      const {
-        data: [publication],
-      } = await this.query(sql)
-      return publication
+      const { data, error } = await this.query(sql)
+      if (error) {
+        return { data, error }
+      } else if (data.length === 0) {
+        return { data: null, error: { message: `Cannot find a publication with ID ${id}` } }
+      } else {
+        return { data: data[0], error }
+      }
     } else if (name) {
       const sql = `${publicationsSql} WHERE p.pubname = ${literal(name)};`
-      const {
-        data: [publication],
-      } = await this.query(sql)
-      return publication
+      const { data, error } = await this.query(sql)
+      if (error) {
+        return { data, error }
+      } else if (data.length === 0) {
+        return { data: null, error: { message: `Cannot find a publication named ${name}` } }
+      } else {
+        return { data: data[0], error }
+      }
     } else {
-      // TODO error
+      return { data: null, error: { message: 'Invalid parameters on publication retrieve' } }
     }
   }
 
@@ -47,7 +61,7 @@ export default class PostgresMetaPublication {
     publish_delete?: boolean
     publish_truncate?: boolean
     tables?: string[]
-  }) {
+  }): Promise<PostgresMetaResult<PostgresPublication>> {
     let tableClause: string
     if (tables === undefined) {
       tableClause = 'FOR ALL TABLES'
@@ -66,9 +80,11 @@ export default class PostgresMetaPublication {
     const sql = `
 CREATE PUBLICATION ${ident(name)} ${tableClause}
   WITH (publish = '${publishOps.join(',')}');`
-    await this.query(sql)
-    const publication = await this.retrieve({ name })
-    return publication
+    const { error } = await this.query(sql)
+    if (error) {
+      return { data: null, error }
+    }
+    return await this.retrieve({ name })
   }
 
   async update(
@@ -90,8 +106,11 @@ CREATE PUBLICATION ${ident(name)} ${tableClause}
       publish_truncate?: boolean
       tables?: string[]
     }
-  ) {
-    const old = await this.retrieve({ id })
+  ): Promise<PostgresMetaResult<PostgresPublication>> {
+    const { data: old, error } = await this.retrieve({ id })
+    if (error) {
+      return { data: null, error }
+    }
 
     // Need to work around the limitations of the SQL. Can't add/drop tables from
     // a publication with FOR ALL TABLES. Can't use the SET TABLE clause without
@@ -116,46 +135,58 @@ CREATE PUBLICATION ${ident(name)} ${tableClause}
     let tableSql: string
     if (tables === undefined) {
       tableSql = ''
-    } else if (old.tables === null) {
+    } else if (old!.tables === null) {
       throw new Error('Tables cannot be added to or dropped from FOR ALL TABLES publications')
     } else if (tables.length > 0) {
-      tableSql = `ALTER PUBLICATION ${ident(old.name)} SET TABLE ${tables.map(ident).join(',')};`
-    } else if (old.tables.length === 0) {
+      tableSql = `ALTER PUBLICATION ${ident(old!.name)} SET TABLE ${tables.map(ident).join(',')};`
+    } else if (old!.tables.length === 0) {
       tableSql = ''
     } else {
-      tableSql = `ALTER PUBLICATION ${ident(old.name)} DROP TABLE ${old.tables
+      tableSql = `ALTER PUBLICATION ${ident(old!.name)} DROP TABLE ${old!.tables
         .map(ident)
         .join(',')};`
     }
 
     let publishOps = []
-    if (publish_insert ?? old.publish_insert) publishOps.push('insert')
-    if (publish_update ?? old.publish_update) publishOps.push('update')
-    if (publish_delete ?? old.publish_delete) publishOps.push('delete')
-    if (publish_truncate ?? old.publish_truncate) publishOps.push('truncate')
-    const publishSql = `ALTER PUBLICATION ${ident(old.name)} SET (publish = '${publishOps.join(
+    if (publish_insert ?? old!.publish_insert) publishOps.push('insert')
+    if (publish_update ?? old!.publish_update) publishOps.push('update')
+    if (publish_delete ?? old!.publish_delete) publishOps.push('delete')
+    if (publish_truncate ?? old!.publish_truncate) publishOps.push('truncate')
+    const publishSql = `ALTER PUBLICATION ${ident(old!.name)} SET (publish = '${publishOps.join(
       ','
     )}');`
 
     const ownerSql =
-      owner === undefined ? '' : `ALTER PUBLICATION ${ident(old.name)} OWNER TO ${ident(owner)};`
+      owner === undefined ? '' : `ALTER PUBLICATION ${ident(old!.name)} OWNER TO ${ident(owner)};`
 
     const nameSql =
-      name === undefined || name === old.name
+      name === undefined || name === old!.name
         ? ''
-        : `ALTER PUBLICATION ${ident(old.name)} RENAME TO ${ident(name)};`
+        : `ALTER PUBLICATION ${ident(old!.name)} RENAME TO ${ident(name)};`
 
     // nameSql must be last
     const sql = `BEGIN; ${tableSql} ${publishSql} ${ownerSql} ${nameSql} COMMIT;`
-    await this.query(sql)
-    const publication = await this.retrieve({ id })
-    return publication
+    {
+      const { error } = await this.query(sql)
+      if (error) {
+        return { data: null, error }
+      }
+    }
+    return await this.retrieve({ id })
   }
 
-  async remove(id: number) {
-    const publication = await this.retrieve({ id })
-    const sql = `DROP PUBLICATION IF EXISTS ${ident(publication.name)};`
-    await this.query(sql)
-    return publication
+  async remove(id: number): Promise<PostgresMetaResult<PostgresPublication>> {
+    const { data: publication, error } = await this.retrieve({ id })
+    if (error) {
+      return { data: null, error }
+    }
+    const sql = `DROP PUBLICATION IF EXISTS ${ident(publication!.name)};`
+    {
+      const { error } = await this.query(sql)
+      if (error) {
+        return { data: null, error }
+      }
+    }
+    return { data: publication!, error: null }
   }
 }

@@ -1,4 +1,5 @@
 import { versionSql } from './sql'
+import { PostgresMetaResult, PostgresVersion } from './types'
 
 export default class PostgresMetaVersion {
   query: Function
@@ -7,10 +8,11 @@ export default class PostgresMetaVersion {
     this.query = query
   }
 
-  async retrieve() {
-    const {
-      data: [version],
-    } = await this.query(versionSql)
-    return version
+  async retrieve(): Promise<PostgresMetaResult<PostgresVersion>> {
+    const { data, error } = await this.query(versionSql)
+    if (error) {
+      return { data, error }
+    }
+    return { data: data[0], error }
   }
 }
